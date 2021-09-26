@@ -1,0 +1,151 @@
+DATA : LV_VBELN TYPE VBAP-VBELN  .
+*Create selection screen
+SELECTION-SCREEN BEGIN OF BLOCK B1 WITH FRAME TITLE TEXT-000.
+PARAMETERS : P_WERKS TYPE VBAP-WERKS OBLIGATORY.
+SELECT-OPTIONS : S_VBELN1 FOR LV_VBELN .
+SELECTION-SCREEN END OF BLOCK B1 .
+ 
+*create selection screen class
+CLASS CL_SEL DEFINITION FINAL .
+  PUBLIC SECTION .
+    TYPES: T_VBELN  TYPE RANGE OF VBELN .
+    DATA : S_VBELN TYPE T_VBELN .
+    DATA : S_WERKS TYPE WERKS_EXT  .
+* Method to get the screen data
+    METHODS : GET_SCREEN IMPORTING LP_WERKS TYPE WERKS_EXT
+                                   LS_VBELN TYPE T_VBELN .
+ENDCLASS .                    "CL_SEL DEFINITION
+*&---------------------------------------------------------------------*
+*&       CLASS (IMPLEMENTATION)  SEL
+*&---------------------------------------------------------------------*
+*        TEXT
+*----------------------------------------------------------------------*
+CLASS CL_SEL IMPLEMENTATION.
+*  Method implementation for screen
+  METHOD GET_SCREEN .
+    ME->S_WERKS = LP_WERKS.
+    ME->S_VBELN = LS_VBELN[] .
+  ENDMETHOD .                    "GET_SCREEN
+ENDCLASS.               "SEL
+*----------------------------------------------------------------------*
+*       CLASS CL_FETCH DEFINITION
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+CLASS CL_FETCH DEFINITION .
+  PUBLIC SECTION.
+    DATA : IT_VBAP TYPE STANDARD TABLE OF VBAP .
+    DATA : SEL_OBJ TYPE REF TO CL_SEL .
+*  GET_SEL method to get the object of screen class
+    METHODS : GET_SEL.
+*  After getting selection screen call method Fetch data
+    METHODS : FETCH_DATA .
+ENDCLASS .                    "CL_FETCH DEFINITION
+ 
+*----------------------------------------------------------------------*
+*       CLASS CL_FETCH IMPLEMENTATION
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+CLASS CL_FETCH IMPLEMENTATION .
+  METHOD GET_SEL.
+* create object of selection class
+  CREATE OBJECT SEL_OBJ.
+  ENDMETHOD.
+  METHOD FETCH_DATA .
+* Fetch the data from selection screen
+  IF SEL_OBJ IS BOUND .
+    SELECT * FROM VBAP INTO TABLE ME->IT_VBAP UP TO 10 ROWS
+    WHERE VBELN IN ME->SEL_OBJ->S_VBELN
+    AND WERKS EQ ME->SEL_OBJ->S_WERKS .
+  ENDIF .
+  ENDMETHOD .                    "FETCH_DATA
+ENDCLASS .                    "CL_FETCH IMPLEMENTATION
+ 
+*----------------------------------------------------------------------*
+*       CLASS CL_CONTROLLER DEFINITION
+*----------------------------------------------------------------------*
+* controller class to get the data from MODEL
+*----------------------------------------------------------------------*
+CLASS CL_CONTROLLER DEFINITION.
+  PUBLIC SECTION.
+    DATA    : OBJ_MODEL TYPE REF TO CL_FETCH .
+*   GET_OBJECT method to get object of model
+    METHODS : GET_OBJECT IMPORTING GEN_NAME TYPE CHAR30.
+ENDCLASS .                    "CL_CONTROLLER DEFINITION
+ 
+*----------------------------------------------------------------------*
+*       CLASS CL_CONTROLLER IMPLEMENTATION
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+CLASS CL_CONTROLLER IMPLEMENTATION .
+  METHOD GET_OBJECT.
+    DATA : LV_OBJECT TYPE REF TO OBJECT.
+*  GEN_NAME is of type CHAR30
+    CREATE OBJECT LV_OBJECT TYPE (GEN_NAME).
+    IF SY-SUBRC EQ 0.
+     OBJ_MODEL ?= LV_OBJECT .
+    ENDIF.
+  ENDMETHOD .                    "GET_OBJECT
+ENDCLASS .                    "CL_CONTROLLER IMPLEMENTATION
+ 
+*----------------------------------------------------------------------*
+*       CLASS CL_ALV DEFINITION
+*----------------------------------------------------------------------*
+*CL_ALV class our VIEW
+*----------------------------------------------------------------------*
+CLASS CL_ALV DEFINITION .
+  PUBLIC SECTION .
+    METHODS : DISPLAY_ALV IMPORTING CON_OBJ TYPE REF TO CL_CONTROLLER.
+ENDCLASS .                    "CL_ALV DEFINITION
+ 
+*----------------------------------------------------------------------*
+*       CLASS CL_ALV IMPLEMENTATION
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+CLASS CL_ALV IMPLEMENTATION.
+  METHOD DISPLAY_ALV .
+    DATA: LX_MSG TYPE REF TO CX_SALV_MSG.
+    DATA: O_ALV TYPE REF TO CL_SALV_TABLE.
+    TRY.
+        CL_SALV_TABLE=>FACTORY(
+          IMPORTING
+            R_SALV_TABLE = O_ALV
+          CHANGING
+            T_TABLE      =  CON_OBJ->OBJ_MODEL->IT_VBAP ).
+      CATCH CX_SALV_MSG INTO LX_MSG.
+    ENDTRY.
+    O_ALV->DISPLAY( ).
+ 
+  ENDMETHOD.                    "DISPLAY_ALV
+ENDCLASS.                    "CL_ALV IMPLEMENTATION
+ 
+DATA: O_DISPLAY TYPE REF TO CL_ALV .
+DATA: O_CON     TYPE REF TO CL_CONTROLLER .
+ 
+INITIALIZATION .
+*Creating object of CL_ALV(View class) and CL_CONTROLLER(controller class).
+ CREATE OBJECT : O_DISPLAY ,O_CON.
+ 
+START-OF-SELECTION.
+*call the method GET_OBJECT to get the object of CL_FETCH(model class)
+ CALL METHOD O_CON->GET_OBJECT
+   EXPORTING
+      GEN_NAME = 'CL_FETCH'.
+ 
+* GET_SEL method of class CL_FETCH to get the object of CL_SEL class
+  CALL METHOD O_CON->OBJ_MODEL->GET_SEL .
+* Once we have the obejct of CL_SEL we can call its method GET_SCREEN
+*to get the selection screen
+  CALL METHOD O_CON->OBJ_MODEL->SEL_OBJ->GET_SCREEN(
+  EXPORTING LP_WERKS = P_WERKS LS_VBELN = S_VBELN1[] ) .
+*Finally we can call FETCH_DATA method and pass our data to controller
+  CALL METHOD O_CON->OBJ_MODEL->FETCH_DATA.
+*The controller  will turn pass the data CL_ALV our VIEW class.
+END-OF-SELECTION .
+*Display data
+  CALL METHOD O_DISPLAY->DISPLAY_ALV
+    EXPORTING
+      CON_OBJ = O_CON.
